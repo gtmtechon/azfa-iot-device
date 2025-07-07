@@ -61,7 +61,8 @@ public class CurrentDeviceStateFunction {
                 name = "req",
                 methods = {HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE},
                 authLevel = com.microsoft.azure.functions.annotation.AuthorizationLevel.FUNCTION, // 또는 ANONYMOUS
-                route = "api/devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
+                route = "devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
+                //route = "api/devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
             HttpRequestMessage<Optional<String>> request,
             @com.microsoft.azure.functions.annotation.BindingName("device_id") String device_id, // 경로에서 ID 추출
             final ExecutionContext context) {
@@ -83,7 +84,7 @@ public class CurrentDeviceStateFunction {
         // HTTP 메서드 및 경로에 따른 로직 분기
         HttpMethod method = request.getHttpMethod();
         String path = request.getUri().getPath(); // 요청 경로 (예: /api/devices/123)
-        String cleanedPath = path.substring(path.indexOf("/api/devices")); // /api/devices/123 -> /api/devices/123
+       //String cleanedPath = path.substring(path.indexOf("/api/devices")); // /api/devices/123 -> /api/devices/123
 
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPassword)) {
             if (HttpMethod.GET.equals(method)) {
