@@ -143,7 +143,7 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage getDeviceById(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "SELECT device_id, device_name, location, temperature, last_updated FROM devices WHERE id = ?";
+        String sql = "SELECT device_id, device_name, location, temperature, last_updated FROM devices WHERE device_id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, id);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -271,7 +271,7 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage deleteDevice(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "DELETE FROM devices WHERE id = ?";
+        String sql = "DELETE FROM devices WHERE device_id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, id);
             int affectedRows = pstmt.executeUpdate();
