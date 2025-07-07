@@ -47,11 +47,11 @@ public class CurrentDeviceStateFunction {
     }
 
     /**
-     * Handles HTTP requests for /api/devices or /api/devices/{id}
+     * Handles HTTP requests for /api/state or /api/state/{id}
      *
      * 프런트엔드에서 변경 없이 호출하기 위해 기존 스프링 부트 API 경로를 따릅니다.
-     * http://<your-function-app-name>.azurewebsites.net/api/devices
-     * http://<your-function-app-name>.azurewebsites.net/api/devices/{id}
+     * http://<your-function-app-name>.azurewebsites.net/api/state
+     * http://<your-function-app-name>.azurewebsites.net/api/state/{id}
      */
     @com.microsoft.azure.functions.annotation.FunctionName("CurrentDeviceStateFunction")
     public HttpResponseMessage run(
@@ -59,7 +59,7 @@ public class CurrentDeviceStateFunction {
                 name = "req",
                 methods = {HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE},
                 authLevel = com.microsoft.azure.functions.annotation.AuthorizationLevel.FUNCTION, // 또는 ANONYMOUS
-                route = "devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
+                route = "/api/state/{id?}") // {id?}는 ID가 선택 사항임을 의미
                 //route = "api/devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
             HttpRequestMessage<Optional<String>> request,
             @com.microsoft.azure.functions.annotation.BindingName("id") String id, // 경로에서 ID 추출
@@ -81,26 +81,26 @@ public class CurrentDeviceStateFunction {
 
         // HTTP 메서드 및 경로에 따른 로직 분기
         HttpMethod method = request.getHttpMethod();
-        String path = request.getUri().getPath(); // 요청 경로 (예: /api/devices/123)
-       //String cleanedPath = path.substring(path.indexOf("/api/devices")); // /api/devices/123 -> /api/devices/123
+        String path = request.getUri().getPath(); // 요청 경로 (예: /api/state/123)
+       //String cleanedPath = path.substring(path.indexOf("/api/state")); // /api/state/123 -> /api/state/123
 
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPassword)) {
             if (HttpMethod.GET.equals(method)) {
                 if (id != null) {
-                    // GET /api/devices/{id}
+                    // GET /api/state/{id}
                     return getDeviceById(conn, id, request);
                 } else {
-                    // GET /api/devices
+                    // GET /api/state
                     return getAllDeviceStatus(conn, request);
                 }
             } else if (HttpMethod.POST.equals(method) && id == null) {
-                // POST /api/devices
+                // POST /api/state
                 return createDevice(conn, request);
             } else if (HttpMethod.PUT.equals(method) && id != null) {
-                // PUT /api/devices/{id}
+                // PUT /api/state/{id}
                 return updateDevice(conn, id, request);
             } else if (HttpMethod.DELETE.equals(method) && id != null) {
-                // DELETE /api/devices/{id}
+                // DELETE /api/state/{id}
                 return deleteDevice(conn, id, request);
             } else {
                 return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Unsupported HTTP method or path.").build();
@@ -115,8 +115,8 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage getAllDeviceStatus(Connection conn, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        List<CurrentDeviceState> current_device_states = new ArrayList<>();
-        String sql = "SELECT id, location, temperature, last_updated FROM devices";
+        List<CurrentDeviceState> device_states = new ArrayList<>();
+        String sql = "SELECT id, location, temperature, last_updated FROM device_state";
         try (Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
@@ -126,13 +126,13 @@ public class CurrentDeviceStateFunction {
                     rs.getDouble("temperature"),
                     rs.getTimestamp("last_updated").toLocalDateTime()
                 );
-                current_device_states.add(device_state);
+                device_states.add(device_state);
             }
         }
         try {
             return request.createResponseBuilder(HttpStatus.OK)
                           .header("Content-Type", "application/json")
-                          .body(objectMapper.writeValueAsString(current_device_states))
+                          .body(objectMapper.writeValueAsString(device_states))
                           .build();
         } catch (Exception e) {
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Error serializing response.").build();
@@ -140,12 +140,12 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage getDeviceById(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "SELECT id, location, temperature, last_updated FROM current_device_state WHERE id = ?";
+        String sql = "SELECT id, location, temperature, last_updated FROM device_state WHERE id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, id);
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    CurrentDeviceState current_device_state = new CurrentDeviceState(
+                    CurrentDeviceState device_state = new CurrentDeviceState(
                         rs.getString("id"),
                         rs.getString("location"),
                         rs.getDouble("temperature"),
@@ -153,7 +153,7 @@ public class CurrentDeviceStateFunction {
                     );
                     return request.createResponseBuilder(HttpStatus.OK)
                                   .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(current_device_state))
+                                  .body(objectMapper.writeValueAsString(device_state))
                                   .build();
                 } else {
                     return request.createResponseBuilder(HttpStatus.NOT_FOUND).body("Device not found with ID: " + id).build();
@@ -205,23 +205,23 @@ public class CurrentDeviceStateFunction {
                 return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Request body is empty.").build();
             }
 
-            CurrentDeviceState current_device_state = objectMapper.readValue(requestBody, CurrentDeviceState.class);
-            if (current_device_state.id == null || current_device_state.id.trim().isEmpty()) {
-                current_device_state.id = java.util.UUID.randomUUID().toString();
+            CurrentDeviceState device_state = objectMapper.readValue(requestBody, CurrentDeviceState.class);
+            if (device_state.id == null || device_state.id.trim().isEmpty()) {
+                device_state.id = java.util.UUID.randomUUID().toString();
             }
-            current_device_state.lastUpdated = java.time.LocalDateTime.now();
+            device_state.lastUpdated = java.time.LocalDateTime.now();
 
-            String sql = "INSERT INTO devices (id,  location, temperature, last_updated) VALUES (?, ?, ?, ?, ?)";
+            String sql = "INSERT INTO device_state (id,  location, temperature, last_updated) VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, current_device_state.id);
-                pstmt.setString(3, current_device_state.location);
-                pstmt.setDouble(4, current_device_state.temperature);
-                pstmt.setTimestamp(5, Timestamp.valueOf(current_device_state.lastUpdated));
+                pstmt.setString(1, device_state.id);
+                pstmt.setString(3, device_state.location);
+                pstmt.setDouble(4, device_state.temperature);
+                pstmt.setTimestamp(5, Timestamp.valueOf(device_state.lastUpdated));
                 int affectedRows = pstmt.executeUpdate();
                 if (affectedRows > 0) {
                     return request.createResponseBuilder(HttpStatus.CREATED)
                                   .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(current_device_state))
+                                  .body(objectMapper.writeValueAsString(device_state))
                                   .build();
                 } else {
                     return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to create device.").build();
@@ -243,7 +243,7 @@ public class CurrentDeviceStateFunction {
             updatedDevice.id = id; // 경로의 ID를 사용
             updatedDevice.lastUpdated = java.time.LocalDateTime.now();
 
-            String sql = "UPDATE current_device_state SET location = ?, temperature = ?, last_updated = ? WHERE id = ?";
+            String sql = "UPDATE device_state SET location = ?, temperature = ?, last_updated = ? WHERE id = ?";
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(2, updatedDevice.location);
                 pstmt.setDouble(3, updatedDevice.temperature);
@@ -265,7 +265,7 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage deleteDevice(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "DELETE FROM current_device_state WHERE id = ?";
+        String sql = "DELETE FROM device_state WHERE id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, id);
             int affectedRows = pstmt.executeUpdate();
