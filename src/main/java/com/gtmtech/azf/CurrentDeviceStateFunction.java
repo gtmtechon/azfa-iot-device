@@ -59,7 +59,7 @@ public class CurrentDeviceStateFunction {
                 name = "req",
                 methods = {HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE},
                 authLevel = com.microsoft.azure.functions.annotation.AuthorizationLevel.FUNCTION, // 또는 ANONYMOUS
-                route = "/api/state/{id?}") // {id?}는 ID가 선택 사항임을 의미
+                route = "state/{id?}") // {id?}는 ID가 선택 사항임을 의미
                 //route = "api/devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
             HttpRequestMessage<Optional<String>> request,
             @com.microsoft.azure.functions.annotation.BindingName("id") String id, // 경로에서 ID 추출
