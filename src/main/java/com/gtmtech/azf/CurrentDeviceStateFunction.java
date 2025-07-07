@@ -55,7 +55,7 @@ public class CurrentDeviceStateFunction {
      * http://<your-function-app-name>.azurewebsites.net/api/devices
      * http://<your-function-app-name>.azurewebsites.net/api/devices/{id}
      */
-    @com.microsoft.azure.functions.annotation.FunctionName("CurrentStateApiFunction")
+    @com.microsoft.azure.functions.annotation.FunctionName("CurrentDeviceStateFunction")
     public HttpResponseMessage run(
             @com.microsoft.azure.functions.annotation.HttpTrigger(
                 name = "req",
