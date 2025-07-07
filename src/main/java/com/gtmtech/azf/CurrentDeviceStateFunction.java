@@ -77,7 +77,8 @@ public class CurrentDeviceStateFunction {
         String dbUser = System.getenv("DB_USER");
         String dbPassword = System.getenv("DB_PASSWORD");
 
-        String jdbcUrl = String.format("jdbc:postgresql://%s:%s/%s", dbHost, dbPort, dbName);
+        String jdbcUrl1 = String.format("jdbc:postgresql://%s:%s/%s", dbHost, dbPort, dbName);
+        String jdbcUrl = System.getenv("JDBC_URL");
 
         // HTTP 메서드 및 경로에 따른 로직 분기
         HttpMethod method = request.getHttpMethod();
@@ -91,7 +92,7 @@ public class CurrentDeviceStateFunction {
                     return getDeviceById(conn, id, request);
                 } else {
                     // GET /api/devices
-                    return getAllDevices(conn, request);
+                    return getAllDeviceStatus(conn, request);
                 }
             } else if (HttpMethod.POST.equals(method) && id == null) {
                 // POST /api/devices
@@ -114,7 +115,7 @@ public class CurrentDeviceStateFunction {
         }
     }
 
-    private HttpResponseMessage getAllDevices(Connection conn, HttpRequestMessage<Optional<String>> request) throws SQLException {
+    private HttpResponseMessage getAllDeviceStatus(Connection conn, HttpRequestMessage<Optional<String>> request) throws SQLException {
         List<CurrentDeviceState> devices = new ArrayList<>();
         String sql = "SELECT id, name, location, temperature, last_updated FROM devices";
         try (Statement stmt = conn.createStatement();
