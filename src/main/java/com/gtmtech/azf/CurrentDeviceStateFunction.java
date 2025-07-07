@@ -32,16 +32,14 @@ public class CurrentDeviceStateFunction {
     // 실제 Device 엔티티의 필드에 맞게 조정하세요.
     public static class CurrentDeviceState{
         public String id;
-        public String name;
         public String location;
         public double temperature;
         public java.time.LocalDateTime lastUpdated; // java.time 패키지 사용
 
         // Lombok을 사용하지 않는 경우, 기본 생성자와 getter/setter 필요
         public  CurrentDeviceState() {}
-        public  CurrentDeviceState(String id, String name, String location, double temperature, java.time.LocalDateTime lastUpdated) {
+        public  CurrentDeviceState(String id, String location, double temperature, java.time.LocalDateTime lastUpdated) {
             this.id = id;
-            this.name = name;
             this.location = location;
             this.temperature = temperature;
             this.lastUpdated = lastUpdated;
@@ -117,25 +115,24 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage getAllDeviceStatus(Connection conn, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        List<CurrentDeviceState> devices = new ArrayList<>();
-        String sql = "SELECT device_id, device_name, location, temperature, last_updated FROM devices";
+        List<CurrentDeviceState> current_device_states = new ArrayList<>();
+        String sql = "SELECT id, location, temperature, last_updated FROM devices";
         try (Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
-                CurrentDeviceState device = new CurrentDeviceState(
-                    rs.getString("device_id"),
-                    rs.getString("device_name"),
+                CurrentDeviceState device_state = new CurrentDeviceState(
+                    rs.getString("id"),
                     rs.getString("location"),
                     rs.getDouble("temperature"),
                     rs.getTimestamp("last_updated").toLocalDateTime()
                 );
-                devices.add(device);
+                current_device_states.add(device_state);
             }
         }
         try {
             return request.createResponseBuilder(HttpStatus.OK)
                           .header("Content-Type", "application/json")
-                          .body(objectMapper.writeValueAsString(devices))
+                          .body(objectMapper.writeValueAsString(current_device_states))
                           .build();
         } catch (Exception e) {
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Error serializing response.").build();
@@ -143,21 +140,20 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage getDeviceById(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "SELECT device_id, device_name, location, temperature, last_updated FROM devices WHERE device_id = ?";
+        String sql = "SELECT id, location, temperature, last_updated FROM current_device_state WHERE id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, id);
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    CurrentDeviceState device = new CurrentDeviceState(
-                        rs.getString("device_id"),
-                        rs.getString("device_name"),
+                    CurrentDeviceState current_device_state = new CurrentDeviceState(
+                        rs.getString("id"),
                         rs.getString("location"),
                         rs.getDouble("temperature"),
                         rs.getTimestamp("last_updated").toLocalDateTime()
                     );
                     return request.createResponseBuilder(HttpStatus.OK)
                                   .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(device))
+                                  .body(objectMapper.writeValueAsString(current_device_state))
                                   .build();
                 } else {
                     return request.createResponseBuilder(HttpStatus.NOT_FOUND).body("Device not found with ID: " + id).build();
@@ -209,24 +205,23 @@ public class CurrentDeviceStateFunction {
                 return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Request body is empty.").build();
             }
 
-            CurrentDeviceState newDevice = objectMapper.readValue(requestBody, CurrentDeviceState.class);
-            if (newDevice.id == null || newDevice.id.trim().isEmpty()) {
-                newDevice.id = java.util.UUID.randomUUID().toString();
+            CurrentDeviceState current_device_state = objectMapper.readValue(requestBody, CurrentDeviceState.class);
+            if (current_device_state.id == null || current_device_state.id.trim().isEmpty()) {
+                current_device_state.id = java.util.UUID.randomUUID().toString();
             }
-            newDevice.lastUpdated = java.time.LocalDateTime.now();
+            current_device_state.lastUpdated = java.time.LocalDateTime.now();
 
-            String sql = "INSERT INTO devices (device_id, device_name, location, temperature, last_updated) VALUES (?, ?, ?, ?, ?)";
+            String sql = "INSERT INTO devices (id,  location, temperature, last_updated) VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, newDevice.id);
-                pstmt.setString(2, newDevice.name);
-                pstmt.setString(3, newDevice.location);
-                pstmt.setDouble(4, newDevice.temperature);
-                pstmt.setTimestamp(5, Timestamp.valueOf(newDevice.lastUpdated));
+                pstmt.setString(1, current_device_state.id);
+                pstmt.setString(3, current_device_state.location);
+                pstmt.setDouble(4, current_device_state.temperature);
+                pstmt.setTimestamp(5, Timestamp.valueOf(current_device_state.lastUpdated));
                 int affectedRows = pstmt.executeUpdate();
                 if (affectedRows > 0) {
                     return request.createResponseBuilder(HttpStatus.CREATED)
                                   .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(newDevice))
+                                  .body(objectMapper.writeValueAsString(current_device_state))
                                   .build();
                 } else {
                     return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to create device.").build();
@@ -248,9 +243,8 @@ public class CurrentDeviceStateFunction {
             updatedDevice.id = id; // 경로의 ID를 사용
             updatedDevice.lastUpdated = java.time.LocalDateTime.now();
 
-            String sql = "UPDATE devices SET device_name = ?, location = ?, temperature = ?, last_updated = ? WHERE device_id = ?";
+            String sql = "UPDATE current_device_state SET location = ?, temperature = ?, last_updated = ? WHERE id = ?";
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, updatedDevice.name);
                 pstmt.setString(2, updatedDevice.location);
                 pstmt.setDouble(3, updatedDevice.temperature);
                 pstmt.setTimestamp(4, Timestamp.valueOf(updatedDevice.lastUpdated));
@@ -271,7 +265,7 @@ public class CurrentDeviceStateFunction {
     }
 
     private HttpResponseMessage deleteDevice(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "DELETE FROM devices WHERE device_id = ?";
+        String sql = "DELETE FROM current_device_state WHERE id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, id);
             int affectedRows = pstmt.executeUpdate();
