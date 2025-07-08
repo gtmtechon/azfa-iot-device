@@ -18,12 +18,12 @@ import java.util.Optional;
 /**
  * Azure Functions with HTTP Trigger.
  */
-public class CurrentDeviceStateFunction {
+public class WaterBotStatusFunction {
 
 
     private final ObjectMapper objectMapper; // JSON 직렬화/역직렬화
 
-    public CurrentDeviceStateFunction() {
+    public WaterBotStatusFunction() {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule()); // 날짜/시간 타입 지원
     }
