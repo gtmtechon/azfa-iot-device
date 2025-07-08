@@ -1,279 +1,136 @@
 package com.gtmtech.azf;
 
-
-
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpRequestMessage;
 import com.microsoft.azure.functions.HttpResponseMessage;
 import com.microsoft.azure.functions.HttpStatus;
+import com.microsoft.azure.functions.annotation.FunctionName;
+import com.microsoft.azure.functions.annotation.HttpTrigger;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule; // LocalDateTime 등을 위한 모듈
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.sql.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+// WaterBotState 엔티티와 동일한 구조의 POJO를 여기에 정의하거나 임포트합니다.
+// 실제 프로젝트에서는 com.handson.gtm.iotmon.entity.WaterBotState 를 임포트하여 사용하세요.
+// import com.handson.gtm.iotmon.entity.WaterBotState;
+
 /**
- * Azure Functions with HTTP Trigger.
+ * WaterBot의 최신 상태를 조회하는 Azure Function.
+ * HTTP GET 요청을 통해 모든 WaterBot의 현재 상태를 반환합니다.
  */
 public class WaterBotStatusFunction {
 
+    // JSON 직렬화/역직렬화를 위한 ObjectMapper 인스턴스
+    private final ObjectMapper objectMapper;
 
-    private final ObjectMapper objectMapper; // JSON 직렬화/역직렬화
-
+    /**
+     * WaterBotStatusFunction의 생성자.
+     * ObjectMapper를 초기화하고 LocalDateTime 직렬화를 위한 모듈을 등록합니다.
+     */
     public WaterBotStatusFunction() {
         this.objectMapper = new ObjectMapper();
-        this.objectMapper.registerModule(new JavaTimeModule()); // 날짜/시간 타입 지원
+        this.objectMapper.registerModule(new JavaTimeModule()); // Java 8 날짜/시간 API 지원
     }
 
-    // 디바이스 정보를 담을 간단한 POJO (스프링 부트의 Device 엔티티와 유사)
-    // 실제 Device 엔티티의 필드에 맞게 조정하세요.
-    public static class CurrentDeviceState{
-        public String id;
+    /**
+     * WaterBotState 엔티티와 동일한 구조를 가진 POJO 클래스.
+     * 데이터베이스에서 조회한 결과를 매핑하는 데 사용됩니다.
+     * 실제 프로젝트에서는 com.handson.gtm.iotmon.entity.WaterBotState를 임포트하여 사용하세요.
+     */
+    public static class WaterBotState {
+        public String botId;
+        public String botName;
         public String location;
-        public double temperature;
-        public java.time.LocalDateTime lastUpdated; // java.time 패키지 사용
+        public String locationCooSys;
+        public String status;
+        public LocalDateTime lastUpdated;
 
-        // Lombok을 사용하지 않는 경우, 기본 생성자와 getter/setter 필요
-        public  CurrentDeviceState() {}
-        public  CurrentDeviceState(String id, String location, double temperature, java.time.LocalDateTime lastUpdated) {
-            this.id = id;
+        // 기본 생성자 (Jackson 역직렬화에 필요)
+        public WaterBotState() {}
+
+        // 모든 필드를 포함하는 생성자
+        public WaterBotState(String botId, String botName, String location, String locationCooSys, String status, LocalDateTime lastUpdated) {
+            this.botId = botId;
+            this.botName = botName;
             this.location = location;
-            this.temperature = temperature;
+            this.locationCooSys = locationCooSys;
+            this.status = status;
             this.lastUpdated = lastUpdated;
         }
     }
 
+
     /**
-     * Handles HTTP requests for /api/state or /api/state/{id}
+     * WaterBot의 최신 상태를 조회하는 HTTP 트리거 함수.
+     * 클라이언트로부터 HTTP GET 요청을 받아 데이터베이스에서 모든 WaterBot의 최신 상태를 조회하여 반환합니다.
      *
-     * 프런트엔드에서 변경 없이 호출하기 위해 기존 스프링 부트 API 경로를 따릅니다.
-     * http://<your-function-app-name>.azurewebsites.net/api/state
-     * http://<your-function-app-name>.azurewebsites.net/api/state/{id}
+     * @param request HTTP 요청 메시지 (경로: /api/waterbotstatus/latest)
+     * @param context 함수 실행 컨텍스트 (로깅 등)
+     * @return HTTP 응답 메시지 (성공 시 200 OK와 WaterBotState 목록 JSON, 오류 시 500 Internal Server Error)
      */
-    @com.microsoft.azure.functions.annotation.FunctionName("CurrentDeviceStateFunction")
+    @FunctionName("GetWaterBotLatestStatus") // Azure Portal에 표시될 함수 이름
     public HttpResponseMessage run(
-            @com.microsoft.azure.functions.annotation.HttpTrigger(
-                name = "req",
-                methods = {HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE},
-                authLevel = com.microsoft.azure.functions.annotation.AuthorizationLevel.FUNCTION, // 또는 ANONYMOUS
-                route = "state/{id?}") // {id?}는 ID가 선택 사항임을 의미
-                //route = "api/devices/{id?}") // {id?}는 ID가 선택 사항임을 의미
+            @HttpTrigger(name = "req", methods = {HttpMethod.GET}, // GET 메서드에 대한 HTTP 트리거
+                authLevel = com.microsoft.azure.functions.annotation.AuthorizationLevel.FUNCTION, // 인증 수준 (FUNCTION, ANONYMOUS 등)
+                route = "waterbotstatus/latest") // 이 함수의 API 경로 접미사
             HttpRequestMessage<Optional<String>> request,
-            @com.microsoft.azure.functions.annotation.BindingName("id") String id, // 경로에서 ID 추출
             final ExecutionContext context) {
 
-        context.getLogger().info("Java HTTP trigger processed a request.");
+        context.getLogger().info("Java HTTP trigger for GetWaterBotLatestStatus processed a request.");
 
-        // PostgreSQL 연결 정보 (Azure Function의 애플리케이션 설정에서 가져오는 것이 모범 사례)
-        // Azure Portal Function App -> 구성 -> 애플리케이션 설정에서 추가:
-        // DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+        // Azure Function의 애플리케이션 설정에서 PostgreSQL 연결 정보를 가져옵니다.
+        // 이 환경 변수들은 Azure Portal -> Function App -> 구성 -> 애플리케이션 설정에서 설정해야 합니다.
         String dbHost = System.getenv("DB_HOST");
         String dbPort = System.getenv("DB_PORT");
         String dbName = System.getenv("DB_NAME");
         String dbUser = System.getenv("DB_USER");
         String dbPassword = System.getenv("DB_PASSWORD");
+         String jdbcUrl = System.getenv("JDBC_URL");
 
-        String jdbcUrl1 = String.format("jdbc:postgresql://%s:%s/%s", dbHost, dbPort, dbName);
-        String jdbcUrl = System.getenv("JDBC_URL");
+        // JDBC 연결 URL 구성
+        //String jdbcUrl = String.format("jdbc:postgresql://%s:%s/%s", dbHost, dbPort, dbName);
+        
 
-        // HTTP 메서드 및 경로에 따른 로직 분기
-        HttpMethod method = request.getHttpMethod();
-        String path = request.getUri().getPath(); // 요청 경로 (예: /api/state/123)
-       //String cleanedPath = path.substring(path.indexOf("/api/state")); // /api/state/123 -> /api/state/123
-
+        List<WaterBotState> latestStates = new ArrayList<>();
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPassword)) {
-            if (HttpMethod.GET.equals(method)) {
-                if (id != null) {
-                    // GET /api/state/{id}
-                    return getDeviceById(conn, id, request);
-                } else {
-                    // GET /api/state
-                    return getAllDeviceStatus(conn, request);
+            // waterbot_status 테이블에서 모든 로봇의 최신 상태를 조회합니다.
+            // botId가 PRIMARY KEY이므로, 각 botId에 대한 최신 상태만 존재한다고 가정합니다.
+            String sql = "SELECT botid, botname, location, locationcoosys, status, lastupdated FROM waterbot_status";
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sql)) {
+                while (rs.next()) {
+                    // ResultSet에서 데이터를 읽어 WaterBotState 객체로 매핑합니다.
+                    latestStates.add(new WaterBotState(
+                        rs.getString("botid"),
+                        rs.getString("botname"),
+                        rs.getString("location"),
+                        rs.getString("locationcoosys"),
+                        rs.getString("status"),
+                        rs.getTimestamp("lastupdated").toLocalDateTime() // Timestamp를 LocalDateTime으로 변환
+                    ));
                 }
-            } else if (HttpMethod.POST.equals(method) && id == null) {
-                // POST /api/state
-                return createDevice(conn, request);
-            } else if (HttpMethod.PUT.equals(method) && id != null) {
-                // PUT /api/state/{id}
-                return updateDevice(conn, id, request);
-            } else if (HttpMethod.DELETE.equals(method) && id != null) {
-                // DELETE /api/state/{id}
-                return deleteDevice(conn, id, request);
-            } else {
-                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Unsupported HTTP method or path.").build();
             }
+
+            // 조회된 WaterBotState 목록을 JSON으로 직렬화하여 200 OK 응답을 반환합니다.
+            return request.createResponseBuilder(HttpStatus.OK)
+                          .header("Content-Type", "application/json")
+                          .body(objectMapper.writeValueAsString(latestStates))
+                          .build();
+
         } catch (SQLException e) {
+            // 데이터베이스 연결 또는 쿼리 중 오류 발생 시 500 Internal Server Error 반환
             context.getLogger().severe("Database error: " + e.getMessage());
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Database error: " + e.getMessage()).build();
         } catch (Exception e) {
+            // 기타 예상치 못한 오류 발생 시 500 Internal Server Error 반환
             context.getLogger().severe("An unexpected error occurred: " + e.getMessage());
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred: " + e.getMessage()).build();
-        }
-    }
-
-    private HttpResponseMessage getAllDeviceStatus(Connection conn, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        List<CurrentDeviceState> device_states = new ArrayList<>();
-        String sql = "SELECT id, location, temperature, last_updated FROM device_state";
-        try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                CurrentDeviceState device_state = new CurrentDeviceState(
-                    rs.getString("id"),
-                    rs.getString("location"),
-                    rs.getDouble("temperature"),
-                    rs.getTimestamp("last_updated").toLocalDateTime()
-                );
-                device_states.add(device_state);
-            }
-        }
-        try {
-            return request.createResponseBuilder(HttpStatus.OK)
-                          .header("Content-Type", "application/json")
-                          .body(objectMapper.writeValueAsString(device_states))
-                          .build();
-        } catch (Exception e) {
-            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Error serializing response.").build();
-        }
-    }
-
-    private HttpResponseMessage getDeviceById(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "SELECT id, location, temperature, last_updated FROM device_state WHERE id = ?";
-        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, id);
-            try (ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    CurrentDeviceState device_state = new CurrentDeviceState(
-                        rs.getString("id"),
-                        rs.getString("location"),
-                        rs.getDouble("temperature"),
-                        rs.getTimestamp("last_updated").toLocalDateTime()
-                    );
-                    return request.createResponseBuilder(HttpStatus.OK)
-                                  .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(device_state))
-                                  .build();
-                } else {
-                    return request.createResponseBuilder(HttpStatus.NOT_FOUND).body("Device not found with ID: " + id).build();
-                }
-            }
-        } catch (Exception e) {
-            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Error serializing response or database error: " + e.getMessage()).build();
-        }
-    }
-
-    /**
-     * Handles the creation of a new Device record in the database.
-     * <p>
-     * Parses the incoming HTTP request body to construct a {@link Device} object.
-     * If the device ID is not provided, a new UUID is generated.
-     * The device's last updated timestamp is set to the current time.
-     * Attempts to insert the new device into the "devices" table.
-     * </p>
-     *
-     * @param conn    The active SQL database connection.
-     * @param request The HTTP request message containing the device data in JSON format.
-     *     sample request body:
-     * <pre>
-     * {
-     *     "name": "Temperature Sensor",
-     *     "location": "Warehouse A",
-     *     "temperature": 23.5  // 예시 온도 값 
-    * * <p>{
-        "id": "device-001",
-        "name": "Temperature Sensor",
-        "location": "Warehouse A",
-        "temperature": 23.5,
-        "lastUpdated": "2024-06-10T15:30:00"
-    }
-     * @return        An {@link HttpResponseMessage} indicating the result of the operation:
-     *                <ul>
-     *                  <li>{@code 201 Created} with the created device in JSON if successful.</li>
-     *                  <li>{@code 400 Bad Request} if the request body is invalid or missing.</li>
-     *                  <li>{@code 500 Internal Server Error} if the device could not be created.</li>
-     *                </ul>
-     * @throws SQLException If a database access error occurs.
-     */
-
-
-    private HttpResponseMessage createDevice(Connection conn, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        try {
-            String requestBody = request.getBody().orElse("");
-            if (requestBody.isEmpty()) {
-                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Request body is empty.").build();
-            }
-
-            CurrentDeviceState device_state = objectMapper.readValue(requestBody, CurrentDeviceState.class);
-            if (device_state.id == null || device_state.id.trim().isEmpty()) {
-                device_state.id = java.util.UUID.randomUUID().toString();
-            }
-            device_state.lastUpdated = java.time.LocalDateTime.now();
-
-            String sql = "INSERT INTO device_state (id,  location, temperature, last_updated) VALUES (?, ?, ?, ?, ?)";
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, device_state.id);
-                pstmt.setString(3, device_state.location);
-                pstmt.setDouble(4, device_state.temperature);
-                pstmt.setTimestamp(5, Timestamp.valueOf(device_state.lastUpdated));
-                int affectedRows = pstmt.executeUpdate();
-                if (affectedRows > 0) {
-                    return request.createResponseBuilder(HttpStatus.CREATED)
-                                  .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(device_state))
-                                  .build();
-                } else {
-                    return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to create device.").build();
-                }
-            }
-        } catch (Exception e) {
-            return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Invalid request body or database error: " + e.getMessage()).build();
-        }
-    }
-
-    private HttpResponseMessage updateDevice(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        try {
-            String requestBody = request.getBody().orElse("");
-            if (requestBody.isEmpty()) {
-                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Request body is empty.").build();
-            }
-
-            CurrentDeviceState updatedDevice = objectMapper.readValue(requestBody, CurrentDeviceState.class);
-            updatedDevice.id = id; // 경로의 ID를 사용
-            updatedDevice.lastUpdated = java.time.LocalDateTime.now();
-
-            String sql = "UPDATE device_state SET location = ?, temperature = ?, last_updated = ? WHERE id = ?";
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(2, updatedDevice.location);
-                pstmt.setDouble(3, updatedDevice.temperature);
-                pstmt.setTimestamp(4, Timestamp.valueOf(updatedDevice.lastUpdated));
-                pstmt.setString(5, updatedDevice.id);
-                int affectedRows = pstmt.executeUpdate();
-                if (affectedRows > 0) {
-                    return request.createResponseBuilder(HttpStatus.OK)
-                                  .header("Content-Type", "application/json")
-                                  .body(objectMapper.writeValueAsString(updatedDevice))
-                                  .build();
-                } else {
-                    return request.createResponseBuilder(HttpStatus.NOT_FOUND).body("Device not found with ID: " + id).build();
-                }
-            }
-        } catch (Exception e) {
-            return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Invalid request body or database error: " + e.getMessage()).build();
-        }
-    }
-
-    private HttpResponseMessage deleteDevice(Connection conn, String id, HttpRequestMessage<Optional<String>> request) throws SQLException {
-        String sql = "DELETE FROM device_state WHERE id = ?";
-        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                return request.createResponseBuilder(HttpStatus.NO_CONTENT).build(); // 삭제 성공 시 204 No Content
-            } else {
-                return request.createResponseBuilder(HttpStatus.NOT_FOUND).body("Device not found with ID: " + id).build();
-            }
         }
     }
 }
