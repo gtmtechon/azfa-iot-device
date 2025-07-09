@@ -78,7 +78,7 @@ public class WaterBotStatusFunction {
     public HttpResponseMessage run(
             @HttpTrigger(name = "req", methods = {HttpMethod.GET}, // GET 메서드에 대한 HTTP 트리거
                 authLevel = com.microsoft.azure.functions.annotation.AuthorizationLevel.FUNCTION, // 인증 수준 (FUNCTION, ANONYMOUS 등)
-                route = "waterbotstatus/latest") // 이 함수의 API 경로 접미사
+                route = "robots/status") // 이 함수의 API 경로 접미사
             HttpRequestMessage<Optional<String>> request,
             final ExecutionContext context) {
 
